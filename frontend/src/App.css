@@ -668,3 +668,63 @@ footer {
     line-height: 1.5;
   }
 }
+/* =========================
+   RESULT BREAKDOWN
+========================= */
+
+.result-person {
+  gap: 20px;
+}
+
+.result-person-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.result-person-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 9px;
+}
+
+.result-breakdown {
+  display: flex;
+  gap: 22px;
+  margin-left: 46px;
+  color: #888;
+  font-size: 12px;
+}
+
+.result-breakdown > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.result-breakdown strong {
+  color: #555;
+  font-weight: 600;
+}
+
+.result-person-total {
+  font-size: 18px;
+  white-space: nowrap;
+}
+
+/* Mobile */
+@media (max-width: 600px) {
+  .result-person {
+    align-items: flex-start;
+  }
+
+  .result-breakdown {
+    margin-left: 0;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .result-person-total {
+    font-size: 16px;
+  }
+}

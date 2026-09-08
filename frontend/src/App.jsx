@@ -16,6 +16,7 @@ function App() {
   const [newPerson, setNewPerson] = useState("");
   const [assignments, setAssignments] = useState({});
   const [finalShares, setFinalShares] = useState({});
+  const [shareBreakdown, setShareBreakdown] = useState({});
   const [error, setError] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -261,14 +262,13 @@ function App() {
       return;
     }
 
-    // Start everyone's share at zero
-    const shares = {};
+    // Track each person's food subtotal before extra charges
+    const itemShares = {};
 
     people.forEach((person) => {
-      shares[person] = 0;
+      itemShares[person] = 0;
     });
 
-    // Split item prices
     bill.items.forEach((item) => {
       const selectedPeople =
         assignments[item.id];
@@ -278,7 +278,7 @@ function App() {
         selectedPeople.length;
 
       selectedPeople.forEach((person) => {
-        shares[person] +=
+        itemShares[person] +=
           sharePerPerson;
       });
     });
@@ -297,18 +297,21 @@ function App() {
       bill.gst;
 
     // Distribute extra charges proportionally
+    const shares = {};
+
     people.forEach((person) => {
       const foodShare =
-        shares[person];
+        itemShares[person];
 
       const proportion =
         subtotal > 0
           ? foodShare / subtotal
           : 0;
 
-      shares[person] +=
+      shares[person] =
+        foodShare +
         additionalCharges *
-        proportion;
+          proportion;
     });
 
     // Round values
@@ -359,10 +362,29 @@ function App() {
         ) / 100;
     }
 
-    setFinalShares(
-      roundedShares
-    );
+    // Build a transparent breakdown for the result screen.
+    const breakdown = {};
 
+    people.forEach((person) => {
+      const personItems =
+        Math.round(
+          itemShares[person] * 100
+        ) / 100;
+
+      breakdown[person] = {
+        items: personItems,
+        charges:
+          Math.round(
+            (roundedShares[person] -
+              personItems) *
+              100
+          ) / 100,
+        total: roundedShares[person],
+      };
+    });
+
+    setFinalShares(roundedShares);
+    setShareBreakdown(breakdown);
     setError("");
     setStep("result");
   };
@@ -633,6 +655,7 @@ function App() {
                     min="0"
                     step="1"
                     value={item.quantity}
+                    onFocus={(event) => event.target.select()}
                     onChange={(event) =>
                       handleItemChange(
                         item.id,
@@ -650,6 +673,7 @@ function App() {
                       min="0"
                       step="0.01"
                       value={item.price}
+                      onFocus={(event) => event.target.select()}
                       onChange={(event) =>
                         handleItemChange(
                           item.id,
@@ -1110,35 +1134,59 @@ function App() {
 
             </div>
 
-            {people.map((person) => (
+            {people.map((person) => {
+              const breakdown =
+                shareBreakdown[person] || {
+                  items: 0,
+                  charges: 0,
+                  total: finalShares[person] || 0,
+                };
 
-              <div
-                className="result-person"
-                key={person}
-              >
+              return (
+                <div
+                  className="result-person"
+                  key={person}
+                >
 
-                <span>
+                  <div className="result-person-info">
 
-                  <span className="avatar">
-                    {person
-                      .charAt(0)
-                      .toUpperCase()}
-                  </span>
+                    <div className="result-person-name">
+                      <span className="avatar">
+                        {person
+                          .charAt(0)
+                          .toUpperCase()}
+                      </span>
 
-                  {person}
+                      <strong>
+                        {person}
+                      </strong>
+                    </div>
 
-                </span>
+                    <div className="result-breakdown">
+                      <span>
+                        Items
+                        <strong>
+                          ₹{breakdown.items.toFixed(2)}
+                        </strong>
+                      </span>
 
-                <strong>
-                  ₹
-                  {(
-                    finalShares[person] || 0
-                  ).toFixed(2)}
-                </strong>
+                      <span>
+                        GST + Service
+                        <strong>
+                          ₹{breakdown.charges.toFixed(2)}
+                        </strong>
+                      </span>
+                    </div>
 
-              </div>
+                  </div>
 
-            ))}
+                  <strong className="result-person-total">
+                    ₹{breakdown.total.toFixed(2)}
+                  </strong>
+
+                </div>
+              );
+            })}
 
             <div className="balanced">
 
@@ -1160,6 +1208,7 @@ function App() {
               setBill(null);
               setAssignments({});
               setFinalShares({});
+              setShareBreakdown({});
               setError("");
 
             }}
