@@ -6,6 +6,7 @@ const API_URL = "http://127.0.0.1:8000";
 function App() {
   const [step, setStep] = useState("upload");
   const [selectedFile, setSelectedFile] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState("");
   const [bill, setBill] = useState(null);
   const [people, setPeople] = useState([
     "Akshita",
@@ -42,6 +43,7 @@ function App() {
     }
 
     setSelectedFile(file);
+    setPreviewUrl(URL.createObjectURL(file));
     setError("");
   };
 
@@ -502,6 +504,16 @@ function App() {
                 )}
 
               </label>
+
+              {selectedFile && previewUrl && (
+                <div className="receipt-preview">
+                  <img
+                    src={previewUrl}
+                    alt="Selected receipt preview"
+                  />
+                  <p>Preview of your selected bill</p>
+                </div>
+              )}
 
               {error && (
                 <p className="error-message">
