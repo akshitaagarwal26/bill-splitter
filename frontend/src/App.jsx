@@ -204,6 +204,30 @@ function App() {
   // -----------------------------
 
   const handleItemChange = (itemId, field, value) => {
+    // Quantity 0 means the item is not part of the bill anymore.
+    if (field === "quantity" && Number(value) <= 0) {
+      setBill((current) => {
+        if (!current) return current;
+
+        return {
+          ...current,
+          items: current.items.filter(
+            (item) => item.id !== itemId
+          ),
+        };
+      });
+
+      // Remove the deleted item from assignments too.
+      setAssignments((current) => {
+        const updated = { ...current };
+        delete updated[itemId];
+        return updated;
+      });
+
+      setError("");
+      return;
+    }
+
     setBill((current) => {
       if (!current) return current;
 
@@ -273,8 +297,11 @@ function App() {
       const selectedPeople =
         assignments[item.id];
 
+      const itemTotal =
+        item.price * item.quantity;
+
       const sharePerPerson =
-        item.price /
+        itemTotal /
         selectedPeople.length;
 
       selectedPeople.forEach((person) => {
@@ -287,7 +314,7 @@ function App() {
     const subtotal =
       bill.items.reduce(
         (sum, item) =>
-          sum + item.price,
+          sum + (item.price * item.quantity),
         0
       );
 
@@ -363,6 +390,8 @@ function App() {
     }
 
     // Build a transparent breakdown for the result screen.
+    // Item subtotal is rounded to cents, and charges are the
+    // remaining amount needed to reach that person's final share.
     const breakdown = {};
 
     people.forEach((person) => {
@@ -536,7 +565,7 @@ function App() {
     const subtotal =
       bill.items.reduce(
         (sum, item) =>
-          sum + item.price,
+          sum + (item.price * item.quantity),
         0
       );
 
@@ -623,7 +652,7 @@ function App() {
             </div>
 
             <p className="edit-hint">
-              ✏️ You can edit the item name, quantity, or price before splitting.
+              ✏️ Edit the item name, quantity, or amount. Set quantity to 0 to remove an item.
             </p>
 
             <div className="items-list">
@@ -655,7 +684,6 @@ function App() {
                     min="0"
                     step="1"
                     value={item.quantity}
-                    onFocus={(event) => event.target.select()}
                     onChange={(event) =>
                       handleItemChange(
                         item.id,
@@ -673,7 +701,6 @@ function App() {
                       min="0"
                       step="0.01"
                       value={item.price}
-                      onFocus={(event) => event.target.select()}
                       onChange={(event) =>
                         handleItemChange(
                           item.id,
@@ -1069,7 +1096,7 @@ function App() {
     const subtotal =
       bill.items.reduce(
         (sum, item) =>
-          sum + item.price,
+          sum + (item.price * item.quantity),
         0
       );
 

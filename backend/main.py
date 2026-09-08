@@ -128,6 +128,8 @@ def parse_number(text):
         330.00
         330,00
         ₹330.00
+        Rs.330.00
+        INR 330.00
     """
 
     if not text:
@@ -147,6 +149,7 @@ def parse_number(text):
     # Decimal comma:
     # 340,00 -> 340.00
     if "," in text and "." not in text:
+
         parts = text.split(",")
 
         if (
@@ -166,6 +169,7 @@ def parse_number(text):
 
     try:
         return float(text)
+
     except ValueError:
         return None
 
@@ -174,13 +178,12 @@ def is_item_line(line):
     """
     Decide whether an OCR line looks like a restaurant item.
 
-    We intentionally don't depend on the table header because
-    OCR often reads the header incorrectly.
+    We don't depend on the table header because OCR can
+    read headers incorrectly.
     """
 
     lower = line.lower()
 
-    # Definitely not an item
     ignored = [
         "cash/bill",
         "cashbill",
@@ -191,10 +194,15 @@ def is_item_line(line):
         "gross fota",
         "vat",
         "gst",
+        "cgst",
+        "sgst",
+        "igst",
         "service tax",
         "service charge",
         "service charges",
         "net amount",
+        "amount due",
+        "grand total",
         "get back",
         "subtotal",
         "discount",
@@ -204,6 +212,9 @@ def is_item_line(line):
         "phone",
         "address",
         "tin:",
+        "thank you",
+        "good food",
+        "see you again",
     ]
 
     if any(
@@ -212,7 +223,7 @@ def is_item_line(line):
     ):
         return False
 
-    # Must contain a decimal-like money value.
+    # Must contain a decimal-like money value
     money_pattern = r"\d+[.,]\d{1,3}"
 
     if not re.search(
@@ -221,7 +232,7 @@ def is_item_line(line):
     ):
         return False
 
-    # Need some alphabetic text
+    # Need alphabetic text
     if not re.search(
         r"[A-Za-z]",
         line
@@ -237,16 +248,21 @@ def is_item_line(line):
 
 def extract_items_from_lines(lines):
     """
-    Extract items directly from OCR text lines.
+    Extract restaurant items from OCR text.
 
-    Typical OCR line:
+    Supports both common formats:
 
-        FLAVOURED MOJITO 330.00 1.000 sut.ur
+    Format 1:
+        Item Name 349.00 1.000 349.00
 
-    We take:
-        item name = text before price
-        price     = first money value
-        quantity  = number such as 1.000 / 2.000
+    Format 2:
+        Item Name 1 349.00 349.00
+
+    For Format 2:
+        quantity comes BEFORE the first price.
+
+    For Format 1:
+        quantity comes AFTER the first price.
     """
 
     items = []
@@ -275,7 +291,7 @@ def extract_items_from_lines(lines):
         if not money_matches:
             continue
 
-        # First decimal number is normally the PRICE
+        # First decimal number is normally the RATE/PRICE
         price_match = money_matches[0]
 
         price_text = price_match.group(0)
@@ -288,45 +304,83 @@ def extract_items_from_lines(lines):
             continue
 
         # ----------------------------------------------------
-        # Find quantity
+        # Determine quantity
         # ----------------------------------------------------
 
         quantity = 1
+
+        before_price = line[
+            :price_match.start()
+        ]
 
         after_price = line[
             price_match.end():
         ]
 
-        # Typical receipt quantities:
+        # ====================================================
+        # FORMAT 2
         #
-        # 1.000
-        # 2.000
-        # 3.000
+        # Item Name 1 349.00 349.00
         #
-        # OCR can sometimes output 1.000 as 1.000
-        # or 2.006 etc.
+        # Quantity appears BEFORE price.
+        # ====================================================
 
-        quantity_match = re.search(
-            r"\b(\d+)[.,]\d{3}\b",
-            after_price
+        quantity_before_match = re.search(
+            r"(?:^|\s)(\d+)\s*$",
+            before_price
         )
 
-        if quantity_match:
+        if quantity_before_match:
 
             try:
-                quantity = int(
-                    quantity_match.group(1)
+                possible_quantity = int(
+                    quantity_before_match.group(1)
                 )
+
+                if 1 <= possible_quantity <= 50:
+                    quantity = possible_quantity
+
             except ValueError:
                 quantity = 1
+
+        else:
+
+            # =================================================
+            # FORMAT 1
+            #
+            # Item Name 349.00 1.000 349.00
+            #
+            # Quantity appears AFTER price.
+            # =================================================
+
+            quantity_match = re.search(
+                r"\b(\d+)[.,]\d{3}\b",
+                after_price
+            )
+
+            if quantity_match:
+
+                try:
+                    quantity = int(
+                        quantity_match.group(1)
+                    )
+
+                except ValueError:
+                    quantity = 1
 
         # ----------------------------------------------------
         # Item name
         # ----------------------------------------------------
 
-        name = line[
-            :price_match.start()
-        ]
+        name = before_price
+
+        # If quantity was before the price,
+        # remove it from the item name.
+        if quantity_before_match:
+
+            name = before_price[
+                :quantity_before_match.start()
+            ]
 
         name = clean_text(name)
 
@@ -362,11 +416,15 @@ def extract_items_from_lines(lines):
                 "quantity",
                 "vat",
                 "gst",
+                "cgst",
+                "sgst",
+                "igst",
                 "service",
                 "tax",
                 "gross",
                 "net",
                 "amount",
+                "rate",
             ]
         ):
             continue
@@ -383,6 +441,26 @@ def extract_items_from_lines(lines):
 
         if quantity < 1 or quantity > 50:
             quantity = 1
+
+        # ----------------------------------------------------
+        # Avoid duplicate items
+        # ----------------------------------------------------
+
+        duplicate = False
+
+        for existing in items:
+
+            if (
+                existing["name"].lower()
+                == name.lower()
+                and existing["price"]
+                == round(price, 2)
+            ):
+                duplicate = True
+                break
+
+        if duplicate:
+            continue
 
         # ----------------------------------------------------
         # Add item
@@ -406,185 +484,257 @@ def extract_items_from_lines(lines):
 
 def extract_charges(lines, items):
     """
-    Extract tax/service charges when OCR gives a clear amount.
+    Extract service charges and taxes.
 
-    If the receipt's bottom section is too blurry, we safely
-    fall back to calculating the subtotal from the detected
-    items rather than returning obviously incorrect numbers.
+    Supports:
+
+        Service Charge
+        Service Charges
+        Service Tax
+        GST
+        CGST
+        SGST
+        IGST
+        VAT
+
+    Also detects:
+
+        Grand Total
+        Net Amount
+        Amount Due
     """
 
     gst = 0.0
     service_charge = 0.0
+    grand_total = None
+
+    # --------------------------------------------------------
+    # Calculate subtotal
+    # --------------------------------------------------------
 
     subtotal = round(
         sum(
-            item["price"]
-            * item["quantity"]
+            item["price"] * item["quantity"]
             for item in items
         ),
         2
     )
 
-    grand_total = None
-
     for line in lines:
 
         lower = line.lower()
 
-        # --------------------------------------------
-        # Service charges
-        # --------------------------------------------
+        # ----------------------------------------------------
+        # Extract numbers
+        # ----------------------------------------------------
 
-        if "service charges" in lower:
+        number_matches = re.findall(
+            r"\d+(?:[.,]\d{1,3})?",
+            line
+        )
 
-            # Look for actual amount after percentage.
-            #
-            # Example:
-            # Service Charges 10.00% 258.00
-            #
-            numbers = re.findall(
-                r"\d+[.,]\d{1,3}",
-                line
-            )
+        values = []
 
-            values = [
-                parse_number(number)
-                for number in numbers
-            ]
+        for number in number_matches:
 
-            values = [
-                value
-                for value in values
-                if value is not None
-            ]
+            value = parse_number(number)
 
-            # Ignore 10.00 percentage.
+            if value is not None:
+                values.append(value)
+
+        # ====================================================
+        # SERVICE CHARGE
+        # ====================================================
+
+        if (
+            "service charge" in lower
+            or "service charges" in lower
+        ):
+
             candidates = [
                 value
                 for value in values
-                if value > 20
+                if (
+                    value > 0
+                    and value <= subtotal
+                    and value not in [
+                        5,
+                        10,
+                        12,
+                        18,
+                        28,
+                    ]
+                )
             ]
 
             if candidates:
+
                 service_charge = max(
                     candidates
                 )
 
-        # --------------------------------------------
-        # Service tax
-        # --------------------------------------------
+        # ====================================================
+        # SERVICE TAX
+        # ====================================================
 
         elif "service tax" in lower:
 
-            numbers = re.findall(
-                r"\d+[.,]\d{1,3}",
-                line
-            )
-
-            values = [
-                parse_number(number)
-                for number in numbers
-            ]
-
-            values = [
+            candidates = [
                 value
                 for value in values
-                if value is not None
-                and value > 20
+                if (
+                    value > 0
+                    and value <= subtotal
+                    and value not in [
+                        5,
+                        10,
+                        12,
+                        18,
+                        28,
+                    ]
+                )
             ]
 
-            if values:
-                gst += max(values)
+            if candidates:
 
-        # --------------------------------------------
-        # VAT / GST
-        # --------------------------------------------
+                gst += max(
+                    candidates
+                )
 
-        elif (
-            "vat" in lower
-            or "gst" in lower
+        # ====================================================
+        # GST / CGST / SGST / IGST / VAT
+        # ====================================================
+
+        elif any(
+            tax_name in lower
+            for tax_name in [
+                "gst",
+                "cgst",
+                "sgst",
+                "igst",
+                "vat",
+            ]
         ):
 
-            numbers = re.findall(
-                r"\d+[.,]\d{1,3}",
-                line
-            )
-
-            values = [
-                parse_number(number)
-                for number in numbers
-            ]
-
-            values = [
+            candidates = [
                 value
                 for value in values
-                if value is not None
-                and value > 20
-                and value < subtotal
+                if (
+                    value > 0
+                    and value < subtotal
+                    and value not in [
+                        5,
+                        12,
+                        18,
+                        28,
+                    ]
+                )
             ]
 
-            if values:
-                gst += max(values)
+            if candidates:
 
-        # --------------------------------------------
-        # Net amount
-        # --------------------------------------------
+                gst += max(
+                    candidates
+                )
+
+        # ====================================================
+        # GRAND TOTAL / NET AMOUNT / AMOUNT DUE
+        # ====================================================
 
         elif (
-            "net amount" in lower
+            "grand total" in lower
+            or "net amount" in lower
             or "amount due" in lower
         ):
 
-            numbers = re.findall(
-                r"\d+[.,]\d{1,3}",
-                line
-            )
-
-            values = [
-                parse_number(number)
-                for number in numbers
-            ]
-
-            values = [
+            candidates = [
                 value
                 for value in values
-                if value is not None
-                and value > subtotal
+                if value >= subtotal
             ]
 
-            if values:
-                grand_total = max(values)
+            if candidates:
 
-    # --------------------------------------------
-    # Safety checks
-    # --------------------------------------------
+                grand_total = max(
+                    candidates
+                )
 
-    if service_charge > subtotal:
+    # ========================================================
+    # SAFETY CHECKS
+    # ========================================================
+
+    if (
+        service_charge < 0
+        or service_charge > subtotal
+    ):
         service_charge = 0.0
 
-    if gst > subtotal:
+    if (
+        gst < 0
+        or gst > subtotal
+    ):
         gst = 0.0
 
-    # If OCR didn't find a trustworthy final total,
-    # calculate it.
-    if grand_total is None:
-        grand_total = round(
-            subtotal
-            + gst
-            + service_charge,
+    # ========================================================
+    # MAKE CHARGES MATCH FINAL TOTAL
+    # ========================================================
+
+    if grand_total is not None:
+
+        expected_charges = round(
+            grand_total - subtotal,
             2
         )
 
+        detected_charges = round(
+            service_charge + gst,
+            2
+        )
+
+        if expected_charges >= 0:
+
+            difference = round(
+                expected_charges
+                - detected_charges,
+                2
+            )
+
+            if abs(difference) > 0.01:
+
+                gst = round(
+                    gst + difference,
+                    2
+                )
+
+    else:
+
+        grand_total = round(
+            subtotal
+            + service_charge
+            + gst,
+            2
+        )
+
+    # ========================================================
+    # RETURN
+    # ========================================================
+
     return {
-        "gst": round(gst, 2),
+        "gst": round(
+            gst,
+            2
+        ),
+
         "service_charge": round(
             service_charge,
             2
         ),
+
         "subtotal": round(
             subtotal,
             2
         ),
+
         "grand_total": round(
             grand_total,
             2
@@ -598,7 +748,7 @@ def extract_charges(lines, items):
 
 def extract_bill(processed_image):
 
-    # OCR using a layout mode suitable for receipts
+    # OCR using receipt-friendly layout
     ocr_text = pytesseract.image_to_string(
         processed_image,
         config="--psm 4"
@@ -610,9 +760,9 @@ def extract_bill(processed_image):
         if clean_text(line)
     ]
 
-    # --------------------------------------------------------
-    # Restaurant
-    # --------------------------------------------------------
+    # ========================================================
+    # RESTAURANT
+    # ========================================================
 
     restaurant = "Unknown Restaurant"
 
@@ -633,26 +783,34 @@ def extract_bill(processed_image):
             and "tin:" not in lower
             and "phone" not in lower
             and "bangalore" not in lower
+            and "date" not in lower
+            and "time" not in lower
         ):
+
             restaurant = candidate
+
             break
 
-    # --------------------------------------------------------
-    # Items
-    # --------------------------------------------------------
+    # ========================================================
+    # ITEMS
+    # ========================================================
 
     items = extract_items_from_lines(
         lines
     )
 
-    # --------------------------------------------------------
-    # Charges
-    # --------------------------------------------------------
+    # ========================================================
+    # CHARGES
+    # ========================================================
 
     charges = extract_charges(
         lines,
         items
     )
+
+    # ========================================================
+    # RETURN BILL
+    # ========================================================
 
     return {
         "restaurant": restaurant,
@@ -688,9 +846,9 @@ async def process_bill(
     file: UploadFile = File(...)
 ):
 
-    # --------------------------------------------------------
-    # Validate file
-    # --------------------------------------------------------
+    # ========================================================
+    # VALIDATE FILE
+    # ========================================================
 
     allowed_types = [
         "image/jpeg",
@@ -708,9 +866,9 @@ async def process_bill(
             ),
         }
 
-    # --------------------------------------------------------
-    # Read file
-    # --------------------------------------------------------
+    # ========================================================
+    # READ FILE
+    # ========================================================
 
     image_data = await file.read()
 
@@ -723,9 +881,9 @@ async def process_bill(
             ),
         }
 
-    # --------------------------------------------------------
-    # Preprocess
-    # --------------------------------------------------------
+    # ========================================================
+    # PREPROCESS IMAGE
+    # ========================================================
 
     try:
 
@@ -743,9 +901,9 @@ async def process_bill(
             ),
         }
 
-    # --------------------------------------------------------
-    # OCR + extraction
-    # --------------------------------------------------------
+    # ========================================================
+    # OCR + EXTRACTION
+    # ========================================================
 
     try:
 
@@ -763,9 +921,9 @@ async def process_bill(
             ),
         }
 
-    # --------------------------------------------------------
-    # Make sure items were detected
-    # --------------------------------------------------------
+    # ========================================================
+    # MAKE SURE ITEMS WERE DETECTED
+    # ========================================================
 
     if not bill["items"]:
 
@@ -776,14 +934,15 @@ async def process_bill(
                 "items. Please upload a clearer "
                 "photograph."
             ),
+
             "ocr_text": bill[
                 "ocr_text"
             ],
         }
 
-    # --------------------------------------------------------
-    # Response
-    # --------------------------------------------------------
+    # ========================================================
+    # RESPONSE
+    # ========================================================
 
     return {
         "success": True,
@@ -801,6 +960,7 @@ async def process_bill(
         ],
 
         "bill": {
+
             "restaurant": bill[
                 "restaurant"
             ],
