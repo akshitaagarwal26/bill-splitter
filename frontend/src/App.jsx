@@ -1,179 +1,167 @@
 import { useState } from "react";
 import "./App.css";
 
+const API_URL = "http://127.0.0.1:8000";
+
 function App() {
-  // =========================
-  // APP STATE
-  // =========================
-
-  const [selectedFile, setSelectedFile] = useState(null);
   const [step, setStep] = useState("upload");
-
-  // People splitting the bill
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [bill, setBill] = useState(null);
   const [people, setPeople] = useState([
     "Akshita",
     "Ishika",
     "Harshit",
     "Vidhi",
   ]);
-
-  // New person input
   const [newPerson, setNewPerson] = useState("");
-
-  // Currently selected people for every item
-  const [assignments, setAssignments] = useState({
-    1: ["Akshita"],
-    2: ["Akshita"],
-    3: ["Akshita"],
-    4: ["Akshita"],
-    5: ["Akshita"],
-    6: ["Akshita"],
-    7: ["Akshita"],
-  });
-
-  // Final calculated shares
+  const [assignments, setAssignments] = useState({});
   const [finalShares, setFinalShares] = useState({});
+  const [error, setError] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  // =========================
-  // MOCK BILL
-  // =========================
-
-  // This will later be replaced by AI extraction.
-  const [bill] = useState({
-    restaurant: "The Daily Brew",
-
-    items: [
-      {
-        id: 1,
-        name: "Margherita Pizza",
-        quantity: 1,
-        price: 349,
-      },
-      {
-        id: 2,
-        name: "Paneer Pasta",
-        quantity: 1,
-        price: 329,
-      },
-      {
-        id: 3,
-        name: "Chicken Burger",
-        quantity: 2,
-        price: 598,
-      },
-      {
-        id: 4,
-        name: "French Fries",
-        quantity: 1,
-        price: 199,
-      },
-      {
-        id: 5,
-        name: "Cold Coffee",
-        quantity: 3,
-        price: 447,
-      },
-      {
-        id: 6,
-        name: "Lemon Iced Tea",
-        quantity: 2,
-        price: 258,
-      },
-      {
-        id: 7,
-        name: "Chocolate Brownie",
-        quantity: 1,
-        price: 189,
-      },
-    ],
-
-    serviceCharge: 118.45,
-    gst: 124.37,
-  });
-
-  // =========================
-  // BILL CALCULATION
-  // =========================
-
-  const subtotal = bill.items.reduce(
-    (total, item) => total + item.price,
-    0
-  );
-
-  const total =
-    subtotal +
-    bill.serviceCharge +
-    bill.gst;
-
-  // =========================
+  // -----------------------------
   // FILE UPLOAD
-  // =========================
+  // -----------------------------
 
   const handleFileChange = (event) => {
-    const file = event.target.files[0];
+    const file = event.target.files?.[0];
 
-    if (file) {
-      setSelectedFile(file);
-    }
-  };
+    if (!file) return;
 
-  const handleContinue = () => {
-    if (!selectedFile) {
+    const allowedTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+    ];
+
+    if (!allowedTypes.includes(file.type)) {
+      setSelectedFile(null);
+      setError("Please upload a JPG, PNG, or WEBP image.");
       return;
     }
 
-    setStep("bill");
+    setSelectedFile(file);
+    setError("");
   };
 
-  // =========================
+  // -----------------------------
+  // PROCESS BILL
+  // -----------------------------
+
+  const handleContinue = async () => {
+    if (!selectedFile) {
+      setError("Please select a bill image first.");
+      return;
+    }
+
+    setIsProcessing(true);
+    setError("");
+
+    try {
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+
+      const response = await fetch(
+        `${API_URL}/process-bill`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `Server returned ${response.status}`
+        );
+      }
+
+      const data = await response.json();
+
+      if (!data.success || !data.bill) {
+        throw new Error(
+          data.message || "Unable to process bill."
+        );
+      }
+
+      setBill(data.bill);
+
+      const initialAssignments = {};
+
+      data.bill.items.forEach((item) => {
+        initialAssignments[item.id] = [];
+      });
+
+      setAssignments(initialAssignments);
+
+      setStep("bill");
+    } catch (err) {
+      console.error(err);
+
+      setError(
+        err.message ||
+          "Something went wrong while processing the bill."
+      );
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // -----------------------------
   // PEOPLE
-  // =========================
+  // -----------------------------
 
   const handleAddPerson = () => {
     const name = newPerson.trim();
 
     if (!name) {
+      setError("Please enter a name.");
       return;
     }
 
-    const alreadyExists = people.some(
+    const exists = people.some(
       (person) =>
         person.toLowerCase() === name.toLowerCase()
     );
 
-    if (alreadyExists) {
-      alert("This person is already added.");
+    if (exists) {
+      setError("This person is already added.");
       return;
     }
 
-    setPeople([...people, name]);
+    setPeople((current) => [
+      ...current,
+      name,
+    ]);
+
     setNewPerson("");
+    setError("");
   };
 
-  const handleDeletePerson = (nameToDelete) => {
-    // Don't allow deleting everyone
+  const handleDeletePerson = (name) => {
     if (people.length === 1) {
-      alert("At least one person is required.");
+      setError("At least one person is required.");
       return;
     }
 
-    setPeople(
-      people.filter(
-        (person) => person !== nameToDelete
+    setPeople((current) =>
+      current.filter(
+        (person) => person !== name
       )
     );
 
-    // Remove the deleted person from every assignment
-    const updatedAssignments = {};
+    setAssignments((current) => {
+      const updated = {};
 
-    Object.keys(assignments).forEach((itemId) => {
-      updatedAssignments[itemId] =
-        assignments[itemId].filter(
-          (person) => person !== nameToDelete
+      Object.keys(current).forEach((itemId) => {
+        updated[itemId] = current[itemId].filter(
+          (person) => person !== name
         );
+      });
+
+      return updated;
     });
 
-    setAssignments(updatedAssignments);
+    setError("");
   };
 
   const handlePersonKeyDown = (event) => {
@@ -182,69 +170,102 @@ function App() {
     }
   };
 
-  // =========================
-  // ITEM ASSIGNMENT
-  // =========================
+  // -----------------------------
+  // ASSIGN PEOPLE TO ITEM
+  // -----------------------------
 
-  const handleTogglePerson = (itemId, person) => {
-    const currentPeople =
-      assignments[itemId] || [];
+  const handleTogglePerson = (
+    itemId,
+    person
+  ) => {
+    setAssignments((current) => {
+      const selected =
+        current[itemId] || [];
 
-    const alreadySelected =
-      currentPeople.includes(person);
+      const alreadySelected =
+        selected.includes(person);
 
-    let updatedPeople;
-
-    if (alreadySelected) {
-      updatedPeople = currentPeople.filter(
-        (item) => item !== person
-      );
-    } else {
-      updatedPeople = [
-        ...currentPeople,
-        person,
-      ];
-    }
-
-    setAssignments({
-      ...assignments,
-      [itemId]: updatedPeople,
+      return {
+        ...current,
+        [itemId]: alreadySelected
+          ? selected.filter(
+              (name) => name !== person
+            )
+          : [...selected, person],
+      };
     });
+
+    setError("");
   };
 
-  // =========================
-  // CALCULATE FINAL SPLIT
-  // =========================
+  // -----------------------------
+  // CALCULATE SPLIT
+  // -----------------------------
 
   const calculateSplit = () => {
+    if (!bill) return;
+
+    // Check for unassigned items
+    const unassignedItems =
+      bill.items.filter((item) => {
+        const selectedPeople =
+          assignments[item.id] || [];
+
+        return selectedPeople.length === 0;
+      });
+
+    if (unassignedItems.length > 0) {
+      const itemNames =
+        unassignedItems
+          .map((item) => item.name)
+          .join(", ");
+
+      setError(
+        `Please assign every item before calculating. Unassigned: ${itemNames}`
+      );
+
+      return;
+    }
+
+    // Start everyone's share at zero
     const shares = {};
 
-    // Start everyone at ₹0
     people.forEach((person) => {
       shares[person] = 0;
     });
 
-    // Calculate each person's share of food
+    // Split item prices
     bill.items.forEach((item) => {
       const selectedPeople =
-        assignments[item.id] || [];
+        assignments[item.id];
 
-      if (selectedPeople.length === 0) {
-        return;
-      }
-
-      const itemShare =
-        item.price / selectedPeople.length;
+      const sharePerPerson =
+        item.price /
+        selectedPeople.length;
 
       selectedPeople.forEach((person) => {
-        shares[person] += itemShare;
+        shares[person] +=
+          sharePerPerson;
       });
     });
 
-    // Calculate service charge + GST
-    // proportionally based on food consumption.
+    // Calculate subtotal
+    const subtotal =
+      bill.items.reduce(
+        (sum, item) =>
+          sum + item.price,
+        0
+      );
+
+    // Service charge + GST
+    const additionalCharges =
+      bill.service_charge +
+      bill.gst;
+
+    // Distribute extra charges proportionally
     people.forEach((person) => {
-      const foodShare = shares[person];
+      const foodShare =
+        shares[person];
 
       const proportion =
         subtotal > 0
@@ -252,33 +273,47 @@ function App() {
           : 0;
 
       shares[person] +=
-        (bill.serviceCharge + bill.gst) *
+        additionalCharges *
         proportion;
     });
 
-    // Round values to 2 decimal places
+    // Round values
     const roundedShares = {};
 
     people.forEach((person) => {
       roundedShares[person] =
-        Math.round(shares[person] * 100) / 100;
+        Math.round(
+          shares[person] * 100
+        ) / 100;
     });
 
-    // Fix rounding difference so that:
-    // Sum of people's shares = bill total
-    const roundedTotal = Object.values(
-      roundedShares
-    ).reduce(
-      (sum, amount) => sum + amount,
-      0
-    );
+    // Grand total
+    const grandTotal =
+      subtotal +
+      bill.service_charge +
+      bill.gst;
+
+    // Handle rounding difference
+    const calculatedTotal =
+      Object.values(
+        roundedShares
+      ).reduce(
+        (sum, value) =>
+          sum + value,
+        0
+      );
 
     const difference =
       Math.round(
-        (total - roundedTotal) * 100
+        (grandTotal -
+          calculatedTotal) *
+          100
       ) / 100;
 
-    if (people.length > 0 && difference !== 0) {
+    if (
+      people.length > 0 &&
+      difference !== 0
+    ) {
       const lastPerson =
         people[people.length - 1];
 
@@ -290,19 +325,24 @@ function App() {
         ) / 100;
     }
 
-    setFinalShares(roundedShares);
+    setFinalShares(
+      roundedShares
+    );
+
+    setError("");
     setStep("result");
   };
 
-  // =========================
+  // -----------------------------
   // UPLOAD SCREEN
-  // =========================
+  // -----------------------------
 
   if (step === "upload") {
     return (
       <div className="app">
 
         <nav className="navbar">
+
           <div className="logo">
             <span className="logo-icon">
               🍽️
@@ -314,9 +354,11 @@ function App() {
           <div className="nav-tag">
             AI-powered bill splitting
           </div>
+
         </nav>
 
         <main className="hero">
+
           <div className="hero-content">
 
             <div className="badge">
@@ -342,7 +384,7 @@ function App() {
               <input
                 type="file"
                 id="bill-upload"
-                accept="image/*"
+                accept="image/jpeg,image/png,image/webp"
                 onChange={handleFileChange}
                 hidden
               />
@@ -376,12 +418,21 @@ function App() {
 
               </label>
 
+              {error && (
+                <p className="error-message">
+                  {error}
+                </p>
+              )}
+
               {selectedFile && (
                 <button
                   className="continue-button"
                   onClick={handleContinue}
+                  disabled={isProcessing}
                 >
-                  Continue →
+                  {isProcessing
+                    ? "Reading bill..."
+                    : "Continue →"}
                 </button>
               )}
 
@@ -407,6 +458,7 @@ function App() {
             </div>
 
           </div>
+
         </main>
 
         <footer>
@@ -417,11 +469,26 @@ function App() {
     );
   }
 
-  // =========================
-  // BILL REVIEW
-  // =========================
+  // -----------------------------
+  // BILL REVIEW SCREEN
+  // -----------------------------
 
   if (step === "bill") {
+
+    if (!bill) return null;
+
+    const subtotal =
+      bill.items.reduce(
+        (sum, item) =>
+          sum + item.price,
+        0
+      );
+
+    const total =
+      subtotal +
+      bill.service_charge +
+      bill.gst;
+
     return (
       <div className="app">
 
@@ -447,7 +514,9 @@ function App() {
 
             <button
               className="back-button"
-              onClick={() => setStep("upload")}
+              onClick={() =>
+                setStep("upload")
+              }
             >
               ← Back
             </button>
@@ -463,8 +532,8 @@ function App() {
               </h1>
 
               <p>
-                We found these items. Check the details
-                before splitting.
+                We found these items.
+                Check the details before splitting.
               </p>
 
             </div>
@@ -516,7 +585,8 @@ function App() {
                   </span>
 
                   <strong>
-                    ₹{item.price.toFixed(2)}
+                    ₹
+                    {item.price.toFixed(2)}
                   </strong>
 
                 </div>
@@ -532,27 +602,30 @@ function App() {
                 </span>
 
                 <strong>
-                  ₹{subtotal.toFixed(2)}
+                  ₹
+                  {subtotal.toFixed(2)}
                 </strong>
               </div>
 
               <div>
                 <span>
-                  Service Charge (5%)
+                  Service Charge
                 </span>
 
                 <strong>
-                  ₹{bill.serviceCharge.toFixed(2)}
+                  ₹
+                  {bill.service_charge.toFixed(2)}
                 </strong>
               </div>
 
               <div>
                 <span>
-                  GST (5%)
+                  GST
                 </span>
 
                 <strong>
-                  ₹{bill.gst.toFixed(2)}
+                  ₹
+                  {bill.gst.toFixed(2)}
                 </strong>
               </div>
 
@@ -563,7 +636,8 @@ function App() {
                 </span>
 
                 <strong>
-                  ₹{total.toFixed(2)}
+                  ₹
+                  {total.toFixed(2)}
                 </strong>
 
               </div>
@@ -572,7 +646,9 @@ function App() {
 
             <button
               className="primary-button"
-              onClick={() => setStep("people")}
+              onClick={() =>
+                setStep("people")
+              }
             >
               Looks good — Add people →
             </button>
@@ -581,19 +657,16 @@ function App() {
 
         </main>
 
-        <footer>
-          Built to make group dinners easier.
-        </footer>
-
       </div>
     );
   }
 
-  // =========================
+  // -----------------------------
   // PEOPLE SCREEN
-  // =========================
+  // -----------------------------
 
   if (step === "people") {
+
     return (
       <div className="app">
 
@@ -619,7 +692,9 @@ function App() {
 
             <button
               className="back-button"
-              onClick={() => setStep("bill")}
+              onClick={() =>
+                setStep("bill")
+              }
             >
               ← Back
             </button>
@@ -651,9 +726,13 @@ function App() {
                 placeholder="Enter a person's name"
                 value={newPerson}
                 onChange={(event) =>
-                  setNewPerson(event.target.value)
+                  setNewPerson(
+                    event.target.value
+                  )
                 }
-                onKeyDown={handlePersonKeyDown}
+                onKeyDown={
+                  handlePersonKeyDown
+                }
               />
 
               <button
@@ -664,9 +743,16 @@ function App() {
 
             </div>
 
+            {error && (
+              <p className="error-message">
+                {error}
+              </p>
+            )}
+
             <div className="demo-people">
 
               {people.map((person) => (
+
                 <div
                   className="person"
                   key={person}
@@ -684,7 +770,9 @@ function App() {
 
                   <button
                     onClick={() =>
-                      handleDeletePerson(person)
+                      handleDeletePerson(
+                        person
+                      )
                     }
                     aria-label={`Delete ${person}`}
                   >
@@ -692,14 +780,16 @@ function App() {
                   </button>
 
                 </div>
+
               ))}
 
             </div>
 
             <button
               className="primary-button"
-              onClick={() => setStep("assign")}
-              disabled={people.length === 0}
+              onClick={() =>
+                setStep("assign")
+              }
             >
               Assign items →
             </button>
@@ -708,19 +798,16 @@ function App() {
 
         </main>
 
-        <footer>
-          Built to make group dinners easier.
-        </footer>
-
       </div>
     );
   }
 
-  // =========================
+  // -----------------------------
   // ASSIGNMENT SCREEN
-  // =========================
+  // -----------------------------
 
   if (step === "assign") {
+
     return (
       <div className="app">
 
@@ -746,7 +833,9 @@ function App() {
 
             <button
               className="back-button"
-              onClick={() => setStep("people")}
+              onClick={() =>
+                setStep("people")
+              }
             >
               ← Back
             </button>
@@ -782,14 +871,15 @@ function App() {
                   key={item.id}
                 >
 
-                  <div>
+                  <div className="assignment-header">
 
                     <strong>
                       {item.name}
                     </strong>
 
                     <span>
-                      ₹{item.price.toFixed(2)}
+                      ₹
+                      {item.price.toFixed(2)}
                     </span>
 
                   </div>
@@ -798,14 +888,16 @@ function App() {
 
                     {people.map((person) => {
 
-                      const isSelected =
-                        selectedPeople.includes(person);
+                      const selected =
+                        selectedPeople.includes(
+                          person
+                        );
 
                       return (
                         <button
                           key={person}
                           className={
-                            isSelected
+                            selected
                               ? "person-chip selected"
                               : "person-chip"
                           }
@@ -816,10 +908,16 @@ function App() {
                             )
                           }
                         >
-                          {isSelected ? "✓ " : ""}
+                          {selected
+                            ? "✓ "
+                            : ""}
+
                           {person
                             .charAt(0)
-                            .toUpperCase()}{" "}
+                            .toUpperCase()}
+
+                          {" "}
+
                           {person}
                         </button>
                       );
@@ -827,13 +925,8 @@ function App() {
 
                   </div>
 
-                  <small
-                    style={{
-                      display: "block",
-                      marginTop: "10px",
-                      color: "#888",
-                    }}
-                  >
+                  <small>
+
                     {selectedPeople.length === 0
                       ? "No one selected"
                       : `Shared by ${selectedPeople.length} ${
@@ -841,11 +934,18 @@ function App() {
                             ? "person"
                             : "people"
                         }`}
+
                   </small>
 
                 </div>
               );
             })}
+
+            {error && (
+              <p className="error-message">
+                {error}
+              </p>
+            )}
 
             <button
               className="primary-button"
@@ -862,14 +962,30 @@ function App() {
     );
   }
 
-  // =========================
+  // -----------------------------
   // RESULT SCREEN
-  // =========================
+  // -----------------------------
 
   if (step === "result") {
+
+    if (!bill) return null;
+
+    const subtotal =
+      bill.items.reduce(
+        (sum, item) =>
+          sum + item.price,
+        0
+      );
+
+    const total =
+      subtotal +
+      bill.service_charge +
+      bill.gst;
+
     const calculatedTotal =
       Object.values(finalShares).reduce(
-        (sum, amount) => sum + amount,
+        (sum, amount) =>
+          sum + amount,
         0
       );
 
@@ -916,7 +1032,8 @@ function App() {
               </span>
 
               <strong>
-                ₹{total.toFixed(2)}
+                ₹
+                {total.toFixed(2)}
               </strong>
 
             </div>
@@ -942,9 +1059,9 @@ function App() {
 
                 <strong>
                   ₹
-                  {(finalShares[person] || 0).toFixed(
-                    2
-                  )}
+                  {(
+                    finalShares[person] || 0
+                  ).toFixed(2)}
                 </strong>
 
               </div>
@@ -955,7 +1072,8 @@ function App() {
 
               ✓ Split total: ₹
               {calculatedTotal.toFixed(2)}
-              {" "} — matches bill total
+              {" "}
+              — matches bill total
 
             </div>
 
@@ -964,9 +1082,14 @@ function App() {
           <button
             className="secondary-button"
             onClick={() => {
+
               setStep("upload");
               setSelectedFile(null);
+              setBill(null);
+              setAssignments({});
               setFinalShares({});
+              setError("");
+
             }}
           >
             Split another bill
