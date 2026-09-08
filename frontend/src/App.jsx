@@ -199,6 +199,40 @@ function App() {
   };
 
   // -----------------------------
+  // EDIT BILL ITEM
+  // -----------------------------
+
+  const handleItemChange = (itemId, field, value) => {
+    setBill((current) => {
+      if (!current) return current;
+
+      const updatedItems = current.items.map((item) => {
+        if (item.id !== itemId) return item;
+
+        if (field === "name") {
+          return { ...item, name: value };
+        }
+
+        const numericValue = Number(value);
+
+        return {
+          ...item,
+          [field]: Number.isFinite(numericValue) && numericValue >= 0
+            ? numericValue
+            : 0,
+        };
+      });
+
+      return {
+        ...current,
+        items: updatedItems,
+      };
+    });
+
+    setError("");
+  };
+
+  // -----------------------------
   // CALCULATE SPLIT
   // -----------------------------
 
@@ -566,6 +600,10 @@ function App() {
               <span>AMOUNT</span>
             </div>
 
+            <p className="edit-hint">
+              ✏️ You can edit the item name, quantity, or price before splitting.
+            </p>
+
             <div className="items-list">
 
               {bill.items.map((item) => (
@@ -574,20 +612,54 @@ function App() {
                   key={item.id}
                 >
 
-                  <div>
-                    <strong>
-                      {item.name}
-                    </strong>
+                  <div className="editable-item">
+                    <input
+                      type="text"
+                      value={item.name}
+                      onChange={(event) =>
+                        handleItemChange(
+                          item.id,
+                          "name",
+                          event.target.value
+                        )
+                      }
+                      aria-label={`Item name for ${item.name}`}
+                    />
                   </div>
 
-                  <span>
-                    {item.quantity}
-                  </span>
+                  <input
+                    className="editable-quantity"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={item.quantity}
+                    onChange={(event) =>
+                      handleItemChange(
+                        item.id,
+                        "quantity",
+                        event.target.value
+                      )
+                    }
+                    aria-label={`Quantity for ${item.name}`}
+                  />
 
-                  <strong>
-                    ₹
-                    {item.price.toFixed(2)}
-                  </strong>
+                  <div className="editable-price">
+                    <span>₹</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={item.price}
+                      onChange={(event) =>
+                        handleItemChange(
+                          item.id,
+                          "price",
+                          event.target.value
+                        )
+                      }
+                      aria-label={`Price for ${item.name}`}
+                    />
+                  </div>
 
                 </div>
               ))}

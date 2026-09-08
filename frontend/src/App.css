@@ -579,3 +579,92 @@ footer {
     font-size: 11px;
   }
 }
+/* =========================
+   EDITABLE BILL ITEMS
+========================= */
+
+.edit-hint {
+  margin: 18px 0 5px;
+  color: #777;
+  font-size: 13px;
+}
+
+.editable-item input,
+.editable-quantity,
+.editable-price input {
+  width: 100%;
+  border: 1px solid #ddd;
+  background: #fff;
+  color: #202020;
+  border-radius: 8px;
+  padding: 10px 11px;
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+  transition: 0.2s ease;
+}
+
+.editable-item input:focus,
+.editable-quantity:focus,
+.editable-price input:focus {
+  border-color: #7666df;
+  box-shadow: 0 0 0 3px rgba(118, 102, 223, 0.1);
+}
+
+.editable-item input:hover,
+.editable-quantity:hover,
+.editable-price input:hover {
+  border-color: #c9c5d8;
+}
+
+.editable-quantity {
+  text-align: center;
+}
+
+.editable-price {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.editable-price > span {
+  color: #777;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.editable-price input {
+  min-width: 0;
+}
+
+/* Remove number input arrows */
+.editable-quantity::-webkit-inner-spin-button,
+.editable-quantity::-webkit-outer-spin-button,
+.editable-price input::-webkit-inner-spin-button,
+.editable-price input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.editable-quantity,
+.editable-price input {
+  -moz-appearance: textfield;
+}
+
+/* Mobile */
+@media (max-width: 600px) {
+  .editable-item input,
+  .editable-quantity,
+  .editable-price input {
+    padding: 9px 7px;
+    font-size: 13px;
+  }
+
+  .editable-price {
+    gap: 4px;
+  }
+
+  .edit-hint {
+    line-height: 1.5;
+  }
+}
